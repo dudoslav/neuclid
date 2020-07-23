@@ -15,29 +15,16 @@ class Matrix {
   constexpr Matrix() = default;
   constexpr Matrix(DataType&& data): _data(std::move(data)) {}
 
-  T& operator[](std::size_t i) {
+  constexpr T& operator[](std::size_t i) {
     return _data[i];
   }
 
   template<std::size_t, std::size_t, typename>
-    friend class Matrix;
+  friend class Matrix;
 
-  template<std::size_t O>
-    friend Matrix<M, O, T> operator*(
-        const Matrix<M, N, T>& l,
-        const Matrix<N, O, T>& r) {
-      auto result = Matrix<M, O, T>{};
-
-      for (std::size_t i = 0; i < M; ++i) {
-        for (std::size_t j = 0; j < O; ++j) {
-          for (std::size_t k = 0; k < N; ++k) {
-            result[i * O + j] += l._data[i * N + k] * r._data[k * O + j];
-          }
-        }
-      }
-
-      return result;
-    }
+  template<std::size_t MM, std::size_t NN, std::size_t OO, typename TT>
+  friend Matrix<MM, OO, TT> operator*(const Matrix<MM, NN, TT>&,
+      const Matrix<NN, OO, TT>&);
 
   friend ClassType operator-(const ClassType& l, const ClassType& r) {
     auto result = ClassType{};
@@ -45,9 +32,24 @@ class Matrix {
     return result;
   }
 
-  auto begin() { return _data.begin(); }
-  auto end() { return _data.end(); }
+  constexpr auto begin() { return _data.begin(); }
+  constexpr auto end() { return _data.end(); }
 };
+
+template<std::size_t M, std::size_t N, std::size_t O, typename T>
+Matrix<M, O, T> operator*(const Matrix<M, N, T>& l, const Matrix<N, O, T>& r) {
+  auto result = Matrix<M, O, T>{};
+
+  for (std::size_t i = 0; i < M; ++i) {
+    for (std::size_t j = 0; j < O; ++j) {
+      for (std::size_t k = 0; k < N; ++k) {
+        result[i * O + j] += l._data[i * N + k] * r._data[k * O + j];
+      }
+    }
+  }
+
+  return result;
+}
 
 using Point = Matrix<3, 1, float>;
 
