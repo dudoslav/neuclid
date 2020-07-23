@@ -92,4 +92,8 @@ constexpr auto intersection(Point a, Point b, Point c, Point d) -> Point {
   return point(x, y);
 }
 
+auto distance(Point a, Point b) -> float {
+  return std::sqrt(std::pow(b[0] - a[0], 2) + std::pow(b[1] - a[1], 2));
+}
+
 } // namespace la
