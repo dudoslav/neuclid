@@ -167,6 +167,7 @@ auto main() -> int {
         vline(j, sh/2 - fy - step * (j - ffx), sh/2 + fy + step * (j - ffx), room_c[i]);
       }
     }
+    SDL_RenderPresent(ren.get());
   }
 
   SDL_Quit();
