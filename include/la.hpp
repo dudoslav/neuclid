@@ -85,13 +85,26 @@ constexpr auto scale(float x, float y) -> Matrix<3, 3, float> {
   }};
 }
 
-constexpr auto intersection(Point a, Point b, Point c, Point d) -> Point {
+constexpr auto side(Point a, Point b, Point p) -> float {
+  return (p[0] - a[0]) * (b[1] - a[1]) - (p[1] - a[1]) * (b[0] - a[0]);
+}
+
+constexpr auto line_intersection(Point a, Point b, Point c, Point d) -> Point {
   auto det = (b[0] - a[0]) * (d[1] - c[1]) - (d[0] - c[0]) * (b[1] - a[1]);
   auto x = (b[0] * a[1] - a[0] * b[1]) * (d[0] - c[0]) - (d[0] * c[1] - c[0] * d[1]) * (b[0] - a[0]);
   x = x / det;
   auto y = (b[0] * a[1] - a[0] * b[1]) * (d[1] - c[1]) - (d[0] * c[1] - c[0] * d[1]) * (b[1] - a[1]);
   y = y / det;
   return point(x, y);
+}
+
+constexpr auto segment_intersection(Point a, Point b, Point c, Point d) -> bool {
+  int i = side(a, b, c);
+  int j = side(a, b, d);
+  int k = side(c, d, a);
+  int l = side(c, d, b);
+
+  return std::signbit(i) != std::signbit(j) && std::signbit(k) != std::signbit(l);
 }
 
 auto distance(Point a, Point b) -> float {
