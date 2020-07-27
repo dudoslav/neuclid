@@ -19,6 +19,10 @@ class Matrix {
     return _data[i];
   }
 
+  constexpr const T& operator[](std::size_t i) const {
+    return _data[i];
+  }
+
   template<std::size_t, std::size_t, typename>
   friend class Matrix;
 
@@ -85,8 +89,19 @@ constexpr auto scale(float x, float y) -> Matrix<3, 3, float> {
   }};
 }
 
+template<typename T>
+constexpr auto sign(T n) -> int {
+  if (n < 0) {
+    return -1;
+  } else if (n > 0) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
 constexpr auto side(Point a, Point b, Point p) -> float {
-  return (p[0] - a[0]) * (b[1] - a[1]) - (p[1] - a[1]) * (b[0] - a[0]);
+  return sign((p[0] - a[0]) * (b[1] - a[1]) - (p[1] - a[1]) * (b[0] - a[0]));
 }
 
 constexpr auto line_intersection(Point a, Point b, Point c, Point d) -> Point {
@@ -104,7 +119,7 @@ constexpr auto segment_intersection(Point a, Point b, Point c, Point d) -> bool 
   int k = side(c, d, a);
   int l = side(c, d, b);
 
-  return std::signbit(i) != std::signbit(j) && std::signbit(k) != std::signbit(l);
+  return i != j && k != l;
 }
 
 auto distance(Point a, Point b) -> float {
