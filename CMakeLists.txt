@@ -10,7 +10,7 @@ endif()
 
 find_package(SDL2 REQUIRED)
 
-add_executable(neuclid main.cpp)
+add_executable(neuclid main.cpp src/game.cpp src/world.cpp src/graphics.cpp)
 target_link_libraries(neuclid PRIVATE SDL2)
 target_compile_features(neuclid PRIVATE cxx_std_20)
 target_compile_options(neuclid PRIVATE -Wall -Wextra -pedantic)
