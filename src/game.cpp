@@ -10,9 +10,16 @@
 #include <graphics.hpp>
 #include <world.hpp>
 
+constexpr auto TARGET_W = 640;
+constexpr auto TARGET_H = 480;
+constexpr auto TARGET_WH = TARGET_W / 2;
+constexpr auto TARGET_HH = TARGET_H / 2;
+
 constexpr auto CLIP_L = graphics::point{-50, -50};
 constexpr auto CLIP_R = graphics::point{ 50, -50};
 constexpr auto CLIP_NEAR = 0.0001f;
+
+constexpr auto WALL_TYPE_SOLID = -1;
 
 constexpr auto COLOR_CEIL = 0x888888FF;
 constexpr auto COLOR_FLOOR = 0x444444FF;
@@ -32,30 +39,20 @@ struct Player {
 // SDL
 static SDL_Window* win;
 static SDL_Renderer* ren;
+static SDL_Texture* target;
+// static SDL_Texture* stone;
 
 // Game
 static bool running = true;
 static auto wsad = std::array{false, false, false, false};
 static auto screen = std::pair<int, int>{};
 static auto delta = 0;
+static auto mouse_delta = 0;
+static auto portal_h = std::array<std::pair<int, int>, TARGET_W>{};
 
 // Scene
-static auto player = Player{{0, 0}, 2, 0, 0};
+static auto player = Player{{0, 0}, PLAYER_HEIGHT, 0, 0};
 static auto world = std::vector<Sector>{};
-// static const auto world = std::array{
-//   Sector{0, 5, {
-//     {-20, 10},
-//     {-10, -10},
-//     {10, -10},
-//     {20, 10}
-//   }, {-1, 1, -1, -1}},
-//   Sector{1, 4, {
-//     {-10, -10},
-//     {-10, -40},
-//     {10, -40},
-//     {10, -10}
-//   }, {-1, -1, -1, 0}}
-// };
 
 auto event() -> void {
   auto event = SDL_Event{};
@@ -96,6 +93,10 @@ auto event() -> void {
           wsad[3] = false;
           break;
       }
+    } else if (event.type == SDL_MOUSEMOTION) {
+      mouse_delta = event.motion.xrel;
+      if (mouse_delta >= -1 && mouse_delta <= 1)
+        mouse_delta = 0;
     }
   }
 }
@@ -118,8 +119,11 @@ auto update() -> void {
 
   if (wsad[0]) { move.second = -0.3f * delta / 16; }
   if (wsad[1]) { move.second =  0.3f * delta / 16; }
-  if (wsad[2]) { player.angle -= 0.04f * delta / 16; }
-  if (wsad[3]) { player.angle += 0.04f * delta / 16; }
+  if (wsad[2]) { move.first = -0.3f * delta / 16; }
+  if (wsad[3]) { move.first =  0.3f * delta / 16; }
+  // if (wsad[2]) { player.angle -= 0.04f * delta / 16; }
+  // if (wsad[3]) { player.angle += 0.04f * delta / 16; }
+  player.angle += 10.f * mouse_delta / screen.second;
   auto np = player.position + rotate(move, player.angle);
 
   // Collision detection
@@ -161,11 +165,7 @@ auto vline(int x, int u, int l, int c) -> void {
  * Points are defined in clockwise order starting from top left
  * point.
  */
-auto render_sector(graphics::point a,
-    graphics::point b,
-    graphics::point c,
-    graphics::point d,
-    int sector) -> void {
+auto render_sector(int sector, int ps, int pe) -> void {
   using namespace graphics;
 
   auto current = world[sector];
@@ -175,130 +175,117 @@ auto render_sector(graphics::point a,
       f = rotate(translate(f, -player.position), -player.angle);
       s = rotate(translate(s, -player.position), -player.angle);
 
-      // Behind player
-      if (f.second > -CLIP_NEAR && s.second > -CLIP_NEAR) {
-        return;
-      }
+      // If the whole wall is behind player
+      if (f.second > -CLIP_NEAR && s.second > -CLIP_NEAR) return;
 
       // If out of player vision
-      if (!in_cone(f, s, CLIP_L, CLIP_R)) {
-        return;
-      }
+      if (!in_cone(f, s, CLIP_L, CLIP_R)) return;
 
       // Clipping
       auto [cl, tl] = line_line(f, s, {0, 0}, CLIP_L);
       auto [cr, tr] = line_line(f, s, {0, 0}, CLIP_R);
       if (cl.second < -CLIP_NEAR && tl >= 0 && tl <= 1) {
-        if (cross(CLIP_L, f) < 0) {
-          f = cl;
-        } else {
-          s = cl;
-        }
+        if (cross(CLIP_L, f) < 0) { f = cl; } else { s = cl; }
       }
       if (cr.second < -CLIP_NEAR && tr >= 0 && tr <= 1) {
-        if (cross(CLIP_R, f) > 0) {
-          f = cr;
-        } else {
-          s = cr;
-        }
+        if (cross(CLIP_R, f) > 0) { f = cr; } else { s = cr; }
       }
-
-      auto df = -f.second;
-      auto ds = -s.second;
 
       // Perspective transformation
-      f.first = (screen.first / 2) * (f.first / df);
-      s.first = (screen.first / 2) * (s.first / ds);
+      f.first = TARGET_WH * (f.first / -f.second);
+      s.first = TARGET_WH * (s.first / -s.second);
 
       // Move to middle of the screen
-      f.first += screen.first / 2;
-      s.first += screen.first / 2;
+      f.first += TARGET_WH;
+      s.first += TARGET_WH;
 
       // If player is behind the wall
-      if (f.first >= s.first) {
-        return;
-      }
+      if (f.first >= s.first) return;
 
-      auto start = std::max(a.first, f.first);
-      auto end = std::min(b.first, s.first);
+      // Upper part of wall
+      auto u = player.z - current.ceil;
+      // Lower part of wall
+      auto l = player.z - current.floor;
+      auto sl = point{u * TARGET_HH / -f.second, l * TARGET_HH / -f.second};
+      auto el = point{u * TARGET_HH / -s.second, l * TARGET_HH / -s.second};
+      // Move to middle of screen
+      sl = sl + point{TARGET_HH, TARGET_HH};
+      el = el + point{TARGET_HH, TARGET_HH};
 
-      auto swhu = (current.ceil - player.z) * screen.second / 2 / df;
-      auto ewhu = (current.ceil - player.z) * screen.second / 2 / ds;
-      auto swhl = (player.z - current.floor) * screen.second / 2 / df;
-      auto ewhl = (player.z - current.floor) * screen.second / 2 / ds;
-      swhu = std::lerp(swhu, ewhu, (start - f.first) / (s.first - f.first));
-      ewhu = std::lerp(swhu, ewhu, (end - f.first) / (s.first - f.first));
-      swhl = std::lerp(swhl, ewhl, (start - f.first) / (s.first - f.first));
-      ewhl = std::lerp(swhl, ewhl, (end - f.first) / (s.first - f.first));
-      swhu = screen.second / 2 - swhu;
-      ewhu = screen.second / 2 - ewhu;
-      swhl = screen.second / 2 + swhl;
-      ewhl = screen.second / 2 + ewhl;
+      auto start = std::max(static_cast<int>(f.first), ps);
+      auto end = std::min(static_cast<int>(s.first), pe);
 
-      if (n != -1) {
-        // If portal render floor and ceiling and then define next rendering window
-        auto neighbour = world[n];
-        auto ceil = std::min(current.ceil, neighbour.ceil);
-        auto flor = std::max(current.floor, neighbour.floor);
-        auto swhc = (ceil - player.z) * screen.second / 2 / df;
-        auto ewhc = (ceil - player.z) * screen.second / 2 / ds;
-        auto swhf = (player.z - flor) * screen.second / 2 / df;
-        auto ewhf = (player.z - flor) * screen.second / 2 / ds;
-        swhc = std::lerp(swhc, ewhc, (start - f.first) / (s.first - f.first));
-        ewhc = std::lerp(swhc, ewhc, (end - f.first) / (s.first - f.first));
-        swhf = std::lerp(swhf, ewhf, (start - f.first) / (s.first - f.first));
-        ewhf = std::lerp(swhf, ewhf, (end - f.first) / (s.first - f.first));
-        swhc = screen.second / 2 - swhc;
-        ewhc = screen.second / 2 - ewhc;
-        swhf = screen.second / 2 + swhf;
-        ewhf = screen.second / 2 + ewhf;
-
+      if (n == WALL_TYPE_SOLID) {
+        // Draw simple wall
         for (int i = start; i < end; ++i) {
-          auto p = (i - start) / (end - start);
-          auto cup = std::lerp(a.second, b.second, (i - a.first) / (b.first - a.first));
-          auto clp = std::lerp(d.second, c.second, (i - d.first) / (c.first - d.first));
-          auto cu = std::lerp(swhu, ewhu, p);
-          auto cl = std::lerp(swhl, ewhl, p);
-          cu = std::max(cup, cu);
-          cl = std::min(clp, cl);
-          auto cc = std::lerp(swhc, ewhc, p);
-          auto cf = std::lerp(swhf, ewhf, p);
-          vline(i, cup, cu, COLOR_CEIL);
-          vline(i, cu, cc, COLOR_WALL_CEIL);
-          vline(i, cf, cl, COLOR_WALL_FLOOR);
-          vline(i, cl, clp, COLOR_FLOOR);
-        }
+          const auto& ph = portal_h[i];
+          auto progress = (i - f.first) / (s.first - f.first);
+          int uw = std::lerp(sl.first, el.first, progress);
+          int lw = std::lerp(sl.second, el.second, progress);
+          uw = std::max(uw, ph.first);
+          lw = std::min(lw, ph.second);
 
-        render_sector({start, swhc}, {end, ewhc},
-            {end, ewhf}, {start, swhf}, n);
+          vline(i, ph.first, uw, COLOR_CEIL);
+          vline(i, uw, lw, COLOR_WALL);
+          vline(i, lw, ph.second, COLOR_FLOOR);
+        }
       } else {
-        // If not portal render basic wall
+        // Draw ceiling floor and recursive portal
+        // Additional calculations are needed
+        auto nbr = world[n];
+        // Clipped ceiling
+        auto cc = std::min(current.ceil, nbr.ceil);
+        // Clipped floor
+        auto cf = std::max(current.floor, nbr.floor);
+        auto pc = player.z - cc;
+        auto pf = player.z - cf;
+        auto spl = point{pc * TARGET_HH / -f.second, pf * TARGET_HH / -f.second};
+        auto epl = point{pc * TARGET_HH / -s.second, pf * TARGET_HH / -s.second};
+        // Move to middle of screen
+        spl = spl + point{TARGET_HH, TARGET_HH};
+        epl = epl + point{TARGET_HH, TARGET_HH};
+
         for (int i = start; i < end; ++i) {
-          auto p = (i - start) / (end - start);
-          auto cup = std::lerp(a.second, b.second, (i - a.first) / (b.first - a.first));
-          auto clp = std::lerp(d.second, c.second, (i - d.first) / (c.first - d.first));
-          auto cu = std::lerp(swhu, ewhu, p);
-          auto cl = std::lerp(swhl, ewhl, p);
-          cu = std::max(cup, cu);
-          cl = std::min(clp, cl);
-          vline(i, cup, cu, COLOR_CEIL);
-          vline(i, cu, cl, COLOR_WALL);
-          vline(i, cl, clp, COLOR_FLOOR);
+          auto& ph = portal_h[i];
+          auto progress = (i - f.first) / (s.first - f.first);
+          int uw = std::lerp(sl.first, el.first, progress);
+          int lw = std::lerp(sl.second, el.second, progress);
+          int cw = std::lerp(spl.first, epl.first, progress);
+          int fw = std::lerp(spl.second, epl.second, progress);
+          uw = std::max(uw, ph.first);
+          lw = std::min(lw, ph.second);
+          cw = std::max(cw, ph.first);
+          fw = std::min(fw, ph.second);
+
+          vline(i, ph.first, uw, COLOR_CEIL);
+          vline(i, uw, cw, COLOR_WALL_CEIL);
+          vline(i, fw, lw, COLOR_WALL_FLOOR);
+          vline(i, lw, ph.second, COLOR_FLOOR);
+
+          ph = {cw, fw};
         }
-        vline(start, swhu, swhl, 0x000000FF);
-        vline(end, ewhu, ewhl, 0x000000FF);
+        render_sector(n, start, end);
       }
     });
 }
 
 auto render() -> void {
+  // Change render target to target
+  SDL_SetRenderTarget(ren, target);
   SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
   SDL_RenderClear(ren);
 
-  // Render
-  render_sector({0, 0}, {screen.first, 0},
-      screen, {0, screen.second}, player.sector);
+  // RENDER
+  // Create portal with size of whole target
+  for (auto& l: portal_h)
+    l = {0, TARGET_H};
+  // Render sector that player is in with current portal
+  render_sector(player.sector, 0, TARGET_W);
 
+  // Change render target bac to window
+  SDL_SetRenderTarget(ren, nullptr);
+  // Scale whole target into window
+  SDL_RenderCopy(ren, target, NULL, NULL);
   SDL_RenderPresent(ren);
 }
 
@@ -322,8 +309,8 @@ auto init() -> void {
   win = SDL_CreateWindow("neuclid",
       SDL_WINDOWPOS_UNDEFINED,
       SDL_WINDOWPOS_UNDEFINED,
-      800,
-      600,
+      TARGET_W,
+      TARGET_H,
       0);
 
   if (win == nullptr) {
@@ -340,10 +327,18 @@ auto init() -> void {
 
   SDL_GetRendererOutputSize(ren, &screen.first, &screen.second);
 
+  SDL_SetRelativeMouseMode(SDL_TRUE);
+  
   world = load_world("../assets/map.txt");
+  target = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, TARGET_W, TARGET_H);
+  // auto ss = SDL_LoadBMP("../assets/stone.bmp");
+  // stone = SDL_CreateTextureFromSurface(ren, ss);
+  // SDL_FreeSurface(ss);
 }
 
 auto cleanup() -> void {
+  // SDL_DestroyTexture(stone);
+  SDL_DestroyTexture(target);
   SDL_DestroyRenderer(ren);
   SDL_DestroyWindow(win);
   SDL_Quit();
